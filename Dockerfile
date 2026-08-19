@@ -43,6 +43,11 @@ RUN set -eu; \
 # --- stage 2: runtime -------------------------------------------------------
 FROM ghcr.io/parkervcp/yolks:debian
 
+# Links the GHCR package to this repository, so a workflow push keeps write
+# access instead of depending on who happened to push the image first.
+LABEL org.opencontainers.image.source="https://github.com/yannickbm/smokeping"
+LABEL org.opencontainers.image.description="SmokePing for Pterodactyl (fping built from source, >= 5.2)"
+
 USER root
 ENV DEBIAN_FRONTEND=noninteractive
 
