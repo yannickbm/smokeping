@@ -16,6 +16,10 @@
 # discarded and every target reports 100% loss. Measured on a live container:
 # sent id 0xBEEF, received id 0x004A.
 #
+# netbase is not optional here: fping calls getprotobyname("icmp") on startup,
+# which reads /etc/protocols. Without it even "fping -v" dies with
+# "icmp: unknown protocol" and exit code 4. debian:*-slim does not ship it.
+#
 # fping 5.2 fixed this ("Fix running in unprivileged mode", #248). Build from
 # source until Debian ships >= 5.2. Match the base distro so glibc lines up.
 ARG FPING_VERSION=5.3
@@ -25,7 +29,8 @@ ARG FPING_VERSION
 RUN set -eu; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        build-essential curl ca-certificates; \
+        build-essential curl ca-certificates \
+        netbase; \
     curl -sfL "https://fping.org/dist/fping-${FPING_VERSION}.tar.gz" | tar xz -C /tmp; \
     cd "/tmp/fping-${FPING_VERSION}"; \
     ./configure --prefix=/usr --enable-ipv4 --enable-ipv6; \
@@ -59,6 +64,7 @@ RUN set -eu; \
         libnet-dns-perl \
         libio-socket-ssl-perl \
         libcap2-bin \
+        netbase \
         iputils-ping \
         tzdata; \
     \
