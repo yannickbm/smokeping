@@ -1,0 +1,5 @@
+# Shell scripts and configs land in a Linux container: keep them LF.
+*.sh        text eol=lf
+*.conf      text eol=lf
+*.yml       text eol=lf
+Dockerfile  text eol=lf

@@ -49,6 +49,13 @@ RUN set -eu; \
         [ -d "$d" ] && cp -a "$d/." /opt/smokeping-defaults/www/ || true; \
     done; \
     \
+    # Debian does not ship the css/js the template needs, so take them from the
+    # upstream release. Without these the web interface renders unstyled.
+    SP_VER=2.8.2; \
+    curl -sfL "https://github.com/oetiker/SmokePing/archive/refs/tags/${SP_VER}.tar.gz" \
+        | tar xz -C /opt/smokeping-defaults/www --strip-components=2 \
+            "SmokePing-${SP_VER}/htdocs/css" "SmokePing-${SP_VER}/htdocs/js"; \
+    \
     rm -rf /var/lib/apt/lists/*
 
 USER container

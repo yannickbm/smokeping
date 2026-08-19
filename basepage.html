@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title><##title##></title>
+<style>
+  :root {
+    --ink:        #16181d;
+    --ink-soft:   #5b6270;
+    --line:       #dfe3ea;
+    --surface:    #ffffff;
+    --canvas:     #eef1f6;
+    --accent:     #1d6feb;
+    --accent-dim: #e8f0fe;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--canvas);
+    color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- layout ---------- */
+  .wrap {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+    align-items: start;
+  }
+
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+
+  /* ---------- sidebar ---------- */
+  .sidebar {
+    padding: 18px 16px;
+    position: sticky;
+    top: 24px;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+  }
+
+  .brand {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .sidebar ul { list-style: none; margin: 0; padding: 0; }
+  .sidebar ul ul { margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--line); }
+  .sidebar li { margin: 1px 0; }
+
+  .sidebar a {
+    display: block;
+    padding: 6px 9px;
+    border-radius: 6px;
+    color: var(--ink);
+    text-decoration: none;
+    font-size: 14px;
+  }
+  .sidebar a:hover { background: var(--accent-dim); color: var(--accent); }
+
+  /* de filter- en toggle-widgets van SmokePing zelf */
+  .sidebar input[type="text"] {
+    width: 100%;
+    padding: 7px 9px;
+    margin-bottom: 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font: inherit;
+    font-size: 14px;
+  }
+  .sidebar input[type="text"]:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+    border-color: transparent;
+  }
+  .sidebar img { max-width: 100%; height: auto; margin: 10px 0; }
+
+  /* ---------- content ---------- */
+  .content { padding: 26px 30px 34px; }
+
+  .content h1 {
+    margin: 0 0 20px;
+    font-size: 24px;
+    font-weight: 650;
+    letter-spacing: -.01em;
+  }
+  .content h2 { font-size: 18px; font-weight: 600; margin: 28px 0 12px; }
+
+  .content a { color: var(--accent); text-decoration: none; }
+  .content a:hover { text-decoration: underline; }
+
+  /* de grafieken */
+  .content img {
+    max-width: 100%;
+    height: auto;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px;
+    margin: 10px 0;
+    display: block;
+  }
+
+  .content table { border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  .content th, .content td { padding: 7px 12px; border-bottom: 1px solid var(--line); text-align: left; }
+  .content th { font-weight: 600; color: var(--ink-soft); }
+
+  .content hr { border: 0; border-top: 1px solid var(--line); margin: 26px 0; }
+
+  footer {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 4px 24px 28px;
+    color: var(--ink-soft);
+    font-size: 13px;
+  }
+  footer a { color: var(--ink-soft); }
+
+  @media (max-width: 800px) {
+    .wrap { grid-template-columns: 1fr; }
+    .sidebar { position: static; max-height: none; }
+    .content { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <nav class="panel sidebar">
+    <div class="brand">SmokePing</div>
+    <##menu##>
+  </nav>
+
+  <main class="panel content">
+    <h1><##title##></h1>
+    <##body##>
+  </main>
+</div>
+
+<footer>Metingen elke 5 minuten &middot; <a href="https://oss.oetiker.ch/smokeping/">SmokePing</a> van Tobi Oetiker</footer>
+
+</body>
+</html>
