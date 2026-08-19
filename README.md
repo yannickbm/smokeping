@@ -1,0 +1,2 @@
+# smokeping
+smokeping pterodactyl egg
