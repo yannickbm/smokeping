@@ -147,16 +147,25 @@ mail server of its own.
 
 ## Behind a reverse proxy
 
-Set the `AUTO_CGIURL` variable to `0` in the server's Startup tab, otherwise the
-`cgiurl` line is rewritten to the raw IP and port on every start. Then set it
-yourself in `*** General ***`:
+Fill in the `PUBLIC_URL` variable in the server's Startup tab with the address
+people actually type:
 
 ```
-cgiurl = https://smokeping.example.com/smokeping.cgi
+https://smokeping.example.com
 ```
+
+No trailing slash and no `/smokeping.cgi` — that part is added for you. On every
+start the `cgiurl` line in `config` is rewritten to match, so it cannot drift out
+of date. Leave `PUBLIC_URL` empty and it falls back to the raw IP and port, which
+is what you want without a proxy.
 
 Point the proxy at the node's IP and the server's allocated port. Nothing else is
 needed — the graph images are served from the same port under `/cache/`.
+
+Note that the allocation stays reachable directly on `http://IP:PORT/` as well.
+The proxy adds a name and a certificate; it does not hide the origin. If the
+instance should only be reachable through the proxy, restrict the port on the
+node itself.
 
 ## Files in this folder
 

@@ -47,9 +47,11 @@ Variabelen:
 
 - `OWNER` – naam die in de UI staat
 - `CONTACT` – contactadres / alert-ontvanger
-- `AUTO_CGIURL` – `1` schrijft bij elke start de `cgiurl` in de config naar
-  `http://IP:PORT/smokeping.cgi`. Zet op `0` als je achter een reverse proxy zit
-  en de regel zelf wilt beheren.
+- `PUBLIC_URL` – het adres dat mensen intypen, bijvoorbeeld
+  `https://smokeping.klant.nl`. Zonder slash op het eind en zonder
+  `/smokeping.cgi`; dat wordt erbij gezet. Bij elke start wordt `cgiurl` hiernaar
+  herschreven, dus hij kan niet verlopen. Leeg laten voor directe toegang op de
+  allocatie — dan vult hij `http://IP:PORT` in.
 
 ## 3. Wat er op de server komt te staan
 
@@ -62,6 +64,7 @@ Variabelen:
 ├── data/             ← RRD-bestanden
 ├── cache/            ← gegenereerde grafieken
 ├── run/              ← pidfile
+├── logs/             ← lighttpd-log en stderr van de CGI
 └── www/smokeping.cgi ← de webinterface
 ```
 
@@ -89,8 +92,8 @@ plaats van het Debian-pakket te gebruiken. Wil je een andere versie, bouw dan me
 onder 5.2 in de image belandt.
 
 `start.sh` draait bij elke boot een ICMP-zelftest en schrijft die naar
-`icmp-test.txt` in de serverfolder. Staat daar `1 alive` in, dan werkt het. Zo niet,
-dan waarschuwt de console er ook over — stille 100% loss is anders niet van een
+`icmp-test.txt` in de serverfolder. Staat daar `fping exit=0` in, dan werkt het.
+Zo niet, dan waarschuwt de console er ook over — stille 100% loss is anders niet van een
 werkende meting te onderscheiden.
 
 Let op: je kunt dit **niet** testen door `fping -c1 1.1.1.1` in de serverconsole te
@@ -108,8 +111,13 @@ Blijft ICMP falen met een fping ≥ 5.2, dan blokkeert je node het echt. Twee op
 
 ## Overige aandachtspunten
 
-- Geen HTTPS en geen authenticatie. Zet er een reverse proxy voor als de instantie
-  publiek bereikbaar is (en dan `AUTO_CGIURL = 0` + `cgiurl` handmatig zetten).
+- Geen HTTPS en geen authenticatie in de container zelf. Zet er een reverse proxy
+  voor en vul `PUBLIC_URL` in.
+- **De allocatie blijft daarnaast gewoon bereikbaar op `http://IP:PORT/`.** Een
+  proxy geeft er een naam en een certificaat bij, maar sluit de oorspronkelijke
+  poort niet af. Wie het IP en de poort kent, ziet de grafieken — zonder
+  certificaat en zonder wachtwoord. Wil je dat niet, beperk de poort dan op de
+  node zelf.
 - Alerts via e-mail werken alleen als er een werkende `sendmail`/`mailhost` is;
   standaard is dat niet zo in de container.
 - Stopcommando is `^^C` (SIGINT); `start.sh` vangt dat af en sluit beide processen

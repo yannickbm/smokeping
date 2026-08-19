@@ -8,7 +8,7 @@
 set -euo pipefail
 
 echo "[*] Creating directory layout"
-mkdir -p /mnt/server/data /mnt/server/cache /mnt/server/run /mnt/server/tmp/fontcache /mnt/server/www
+mkdir -p /mnt/server/data /mnt/server/cache /mnt/server/run /mnt/server/tmp/fontcache /mnt/server/www /mnt/server/logs
 cd /mnt/server
 
 # ---------------------------------------------------------------------------
@@ -36,6 +36,17 @@ cat > /mnt/server/lighttpd.conf <<'LIGHTEOF'
 server.modules = ( "mod_alias", "mod_cgi", "mod_setenv" )
 
 server.document-root = "/home/container/www"
+
+# Without this every CGI request dumps SmokePing's upstream perl warnings
+# straight into the Pterodactyl console - roughly seven lines per pageview.
+# They are harmless but they bury the messages that do matter.
+server.errorlog      = "/home/container/logs/lighttpd-error.log"
+
+# server.errorlog only covers lighttpd itself. Anything a CGI writes to stderr
+# goes to the server's own stderr - which here is the Pterodactyl console.
+# SmokePing 2.8.2 emits a dozen "uninitialized value" warnings per pageview
+# through CGI::Carp, so without breakagelog every page load floods the console.
+server.breakagelog   = "/home/container/logs/cgi-stderr.log"
 server.upload-dirs   = ( "/home/container/tmp" )
 
 # The allocated port is injected at runtime
@@ -90,7 +101,7 @@ DEFAULTS=/opt/smokeping-defaults
 SMOKEPING_BIN=/usr/sbin/smokeping
 [ -x "$SMOKEPING_BIN" ] || SMOKEPING_BIN=$(command -v smokeping)
 
-mkdir -p data cache run tmp tmp/fontcache www
+mkdir -p data cache run tmp tmp/fontcache www logs
 
 # --- seed templates and web assets from the image (first boot only) --------
 for f in basepage.html smokemail tmail; do
@@ -145,10 +156,19 @@ fi
 touch /home/container/smokemail /home/container/tmail
 chmod +x /home/container/www/smokeping.cgi 2>/dev/null || true
 
-# --- keep cgiurl in sync with the current allocation -----------------------
-if [ "${AUTO_CGIURL:-1}" = "1" ]; then
-    sed -i -E "s|^([[:space:]]*cgiurl[[:space:]]*=).*|\1 http://${SERVER_IP}:${SERVER_PORT}/smokeping.cgi|" "$CONFIG"
+# --- keep cgiurl in sync ---------------------------------------------------
+# SmokePing builds its links and alert mails from cgiurl, and a container
+# cannot discover its own public address when it sits behind a reverse proxy.
+# Set PUBLIC_URL to the address users actually type; leave it empty for direct
+# access on the allocation. Either way the line is rewritten on every boot, so
+# it cannot drift away from reality.
+if [ -n "${PUBLIC_URL:-}" ]; then
+    CGIURL="${PUBLIC_URL%/}/smokeping.cgi"
+else
+    CGIURL="http://${SERVER_IP}:${SERVER_PORT}/smokeping.cgi"
 fi
+sed -i -E "s|^[[:space:]]*cgiurl[[:space:]]*=.*|cgiurl    = ${CGIURL}|" "$CONFIG"
+echo "[*] cgiurl = ${CGIURL}"
 
 # --- ICMP self-test --------------------------------------------------------
 # Silent 100% loss is indistinguishable from a working probe, so say so loudly.
@@ -170,7 +190,7 @@ fi
     getcap /usr/bin/fping 2>&1 || echo "(none)"
 } > /home/container/icmp-test.txt 2>&1
 
-if grep -q "1 alive" /home/container/icmp-test.txt 2>/dev/null; then
+if grep -q "^fping exit=0$" /home/container/icmp-test.txt 2>/dev/null; then
     echo "[*] ICMP self-test passed."
 else
     echo "[!] ICMP self-test FAILED - every target will report 100% loss."
@@ -229,7 +249,7 @@ datadir   = /home/container/data
 piddir    = /home/container/run
 smokemail = /home/container/smokemail
 tmail     = /home/container/tmail
-# rewritten on every boot while AUTO_CGIURL = 1
+# rewritten on every boot from PUBLIC_URL, or from the allocation if empty
 cgiurl    = http://${SERVER_IP:-127.0.0.1}:${SERVER_PORT:-8080}/smokeping.cgi
 # no syslogfacility -> logging goes to the Pterodactyl console
 concurrentprobes = no
@@ -501,16 +521,25 @@ mail server of its own.
 
 ## Behind a reverse proxy
 
-Set the `AUTO_CGIURL` variable to `0` in the server's Startup tab, otherwise the
-`cgiurl` line is rewritten to the raw IP and port on every start. Then set it
-yourself in `*** General ***`:
+Fill in the `PUBLIC_URL` variable in the server's Startup tab with the address
+people actually type:
 
 ```
-cgiurl = https://smokeping.example.com/smokeping.cgi
+https://smokeping.example.com
 ```
+
+No trailing slash and no `/smokeping.cgi` — that part is added for you. On every
+start the `cgiurl` line in `config` is rewritten to match, so it cannot drift out
+of date. Leave `PUBLIC_URL` empty and it falls back to the raw IP and port, which
+is what you want without a proxy.
 
 Point the proxy at the node's IP and the server's allocated port. Nothing else is
 needed — the graph images are served from the same port under `/cache/`.
+
+Note that the allocation stays reachable directly on `http://IP:PORT/` as well.
+The proxy adds a name and a certificate; it does not hide the origin. If the
+instance should only be reachable through the proxy, restrict the port on the
+node itself.
 
 ## Files in this folder
 
