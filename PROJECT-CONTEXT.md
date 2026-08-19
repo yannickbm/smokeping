@@ -263,12 +263,30 @@ niet meer bestaan.
 
 ## 8. Nog te doen
 
-1. **Toegang tot de webinterface.** De allocatie is publiek bereikbaar op
-   `http://IP:PORT/`, zonder wachtwoord en zonder TLS. De Caddy-proxy zet er een
-   naam en een certificaat voor, maar sluit de oorspronkelijke poort niet af. Wie
-   het IP en de poort kent, ziet de grafieken van die klant. Voor een betaald
-   product wil je dat afdichten — bijvoorbeeld met een IP-allowlist in
-   `lighttpd.conf` die alleen de proxy toelaat, of basic auth
+1. **Toegang tot de webinterface** — bewust open gelaten op 19 augustus, niet
+   vergeten. De allocatie is publiek bereikbaar op `http://IP:PORT/`, zonder
+   wachtwoord en zonder TLS. De Caddy-proxy zet er een naam en een certificaat
+   voor, maar sluit de oorspronkelijke poort niet af. Wie IP en poort kent, ziet
+   de grafieken van die klant, en targetnamen verraden vaak welke systemen
+   iemand draait.
+
+   Overwogen en verworpen: een IP-allowlist per container. Dat dupliceert het
+   proxy-IP over N klantconfiguraties, en bij een verhuizing van de proxy liggen
+   ze er allemaal tegelijk uit.
+
+   Betere richtingen, als het alsnog moet:
+   - **Filteren op `Host`-header** in `lighttpd.conf`, afgeleid uit `PUBLIC_URL`.
+     Bevat geen enkel IP, dus een proxy-verhuizing raakt het niet. Houdt
+     poortscanners buiten, maar is geen slot: wie IP én subdomain kent kan de
+     header vervalsen.
+   - **Eén nftables-regel op de node** die de SmokePing-poortrange alleen vanaf
+     de proxy toelaat. Het IP staat dan op precies één beheerpunt in plaats van
+     in elke container. Reserveer daarvoor wel een vaste poortrange.
+   - **Basic auth** in lighttpd, als een klant er expliciet om vraagt.
+
+   Let ook op: Caddy draait op een aparte machine in een ander netwerk, dus het
+   verkeer proxy → container gaat onversleuteld over het publieke internet. De
+   belofte *SSL Certificate* geldt voor klant ↔ Caddy, niet voor de tweede hop.
 2. Per klant `PUBLIC_URL` invullen bij het aanmaken van de server
 3. Optioneel: `debian:bookworm-slim` als install-container bijtrekken naar trixie,
    puur voor consistentie — bookworm werkt en is bewezen
