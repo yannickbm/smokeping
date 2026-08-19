@@ -70,26 +70,41 @@ Openen op `http://IP:PORT/`. Targets toevoegen doe je onderin `config` onder
 
 ## Belangrijk: ICMP in een Pterodactyl-container
 
-Wings dropt `CAP_NET_RAW`, dus fping kan geen raw sockets openen. De image lost dit
-op door de file-capabilities/setuid van fping te strippen, waarna fping 5.x
-terugvalt op *unprivileged ICMP datagram sockets*. Dat werkt zolang
-`net.ipv4.ping_group_range` in de container de GID van de container-user omvat —
-Docker zet die standaard op `0 2147483647`, dus meestal gaat dit vanzelf goed.
+Wings dropt `CAP_NET_RAW`, dus fping kan geen raw sockets openen. De image strijkt
+de file-capabilities en het setuid-bit van fping glad, waarna fping terugvalt op
+*unprivileged ICMP datagram sockets*. Die zijn toegestaan zolang
+`net.ipv4.ping_group_range` de GID van de container-user omvat — Docker zet die
+standaard op `0 2147483647`, dus dat gaat vanzelf goed.
 
-Test het in de console van de server:
+**Maar dat is niet genoeg.** Bij zo'n socket vervangt de kernel het ICMP echo-ID
+in het pakket door het poortnummer van de socket, zodat hij replies naar de juiste
+socket kan routeren. fping vóór 5.2 filtert binnenkomende replies op het ID dat het
+zelf schreef, ziet daardoor nooit een match, en meldt 100% loss terwijl er niets
+mis is met het netwerk. Upstream heeft dit opgelost in 5.2 ("Fix running in
+unprivileged mode", #248). Debian 13 levert nog 5.1.
 
-```bash
-fping -c1 1.1.1.1
-```
+Daarom bouwt de Dockerfile fping uit source (`FPING_VERSION`, standaard 5.3) in
+plaats van het Debian-pakket te gebruiken. Wil je een andere versie, bouw dan met
+`--build-arg FPING_VERSION=x.y`. De build faalt bewust als er alsnog een fping
+onder 5.2 in de image belandt.
 
-Krijg je `Operation not permitted` of 100% loss op álle targets, dan zijn er twee
-opties:
+`start.sh` draait bij elke boot een ICMP-zelftest en schrijft die naar
+`icmp-test.txt` in de serverfolder. Staat daar `1 alive` in, dan werkt het. Zo niet,
+dan waarschuwt de console er ook over — stille 100% loss is anders niet van een
+werkende meting te onderscheiden.
+
+Let op: je kunt dit **niet** testen door `fping -c1 1.1.1.1` in de serverconsole te
+typen. Het hoofdproces is `bash start.sh`, en bash die een script draait leest geen
+stdin, dus console-input verdwijnt zonder foutmelding.
+
+Blijft ICMP falen met een fping ≥ 5.2, dan blokkeert je node het echt. Twee opties:
 
 1. Op de node in `/etc/docker/daemon.json` toestaan, of in `config.yml` van Wings
    de sysctl meegeven (per node-config, vereist herstart van Wings + de container).
 2. Geen ICMP gebruiken. In de config staat een uitgecommentarieerde `Curl`-probe
    klaar: haal `#` weg bij het `+ Curl`-blok en geef targets `probe = Curl` mee.
-   Die meet HTTP-round-trip en heeft geen speciale rechten nodig.
+   Die meet HTTP-round-trip en heeft geen speciale rechten nodig. Gooi wel de
+   bestaande RRD's van omgezette targets weg, anders meng je ICMP- en HTTP-data.
 
 ## Overige aandachtspunten
 

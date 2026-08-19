@@ -3,6 +3,8 @@
 Overdrachtsdocument. Alles wat is gebouwd, waarom het zo is gebouwd, wat er is
 misgegaan en wat er nog open staat.
 
+Laatst bijgewerkt: 19 augustus 2026, na een meetsessie op een draaiende container.
+
 ---
 
 ## 1. Doel
@@ -12,17 +14,34 @@ zodat er per server een instantie aangemaakt kan worden zonder handwerk.
 
 ## 2. Status
 
-Werkt:
+Werkt en is gemeten:
 - Image bouwt en staat op `ghcr.io/yannickbm/smokeping:latest` (public)
 - Egg installeert, server start, daemon meet 3 targets
-- Webinterface bereikbaar op de allocatie (getest: `84.247.164.16:6666`)
+- Webinterface bereikbaar op de allocatie
+- **Grafieken renderen correct.** De fontconfig-fix is bevestigd, niet vermoed:
+  0 fontconfig-fouten en PNG's van 25–28 KB in `cache/` (zie §6.6)
 
 Open:
-- Grafieken lijken leeg. Vermoedelijke oorzaak is de fontconfig-fout (zie §6.6),
-  fix is geschreven maar op het moment van schrijven nog niet doorgevoerd in het panel
-- Nog niet geverifieerd of ICMP werkt in de container (`fping -c1 1.1.1.1`)
-- GitHub Actions ligt stil door een billing-lock op het GitHub-account; de image is
-  daarom met de hand gebouwd en gepusht
+- **fping 5.1 uit Debian kan geen unprivileged ICMP.** Dit is de reden dat alle
+  targets 100% loss geven. Oorzaak volledig vastgesteld, fix zit in de Dockerfile,
+  maar de image moet nog gebouwd en gepusht worden (zie §6.3)
+- GitHub Actions ligt stil door een billing-lock; de image is daarom met de hand
+  gebouwd en gepusht
+
+## 2b. Testserver
+
+| | |
+|---|---|
+| Panel | `client.hostmybot.net` |
+| Server | `smokeping`, id 361, identifier `7ca5beca` |
+| Node | game001 (id 24) |
+| Allocatie | 84.247.164.16:6666 |
+| Limieten | 50% CPU · 256 MB RAM · 512 MB disk |
+| Eigenaar | yannick@hostmybot.net (user id 2) |
+| Egg | id 42, nest `website` (id 6) |
+
+Op deze server zijn `lighttpd.conf` en `start.sh` met de hand bijgewerkt naar de
+laatste versie. Het **egg in het panel is dat nog niet** — zie §7.
 
 ---
 
@@ -41,7 +60,7 @@ Open:
 
 | Bestand | Rol |
 |---|---|
-| `Dockerfile` | Runtime-image. Basis `ghcr.io/parkervcp/yolks:debian`, daarbovenop smokeping, fping, rrdtool, lighttpd, perl-modules |
+| `Dockerfile` | Runtime-image. Basis `ghcr.io/parkervcp/yolks:debian`, plus smokeping, rrdtool, lighttpd, perl-modules en **fping uit source** (§6.3) |
 | `egg-smokeping.json` | De egg. Bevat het install-script als JSON-string |
 | `install-script.sh` | Hetzelfde install-script als los bestand, voor copy-paste in het panel |
 | `lighttpd.conf` | Webserverconfig (wordt door het install-script geschreven; los bestand voor handmatige fixes) |
@@ -49,6 +68,9 @@ Open:
 | `README-smokeping.md` | Engelstalige gebruikersuitleg, wordt door het install-script als `README.md` in de serverfolder gezet |
 | `build-image.yml` | GitHub Actions workflow |
 | `setup-repo.sh` | Eenmalig hulpscript om de repo te vullen |
+
+`egg-smokeping.json` wordt gegenereerd uit `install-script.sh`: pas altijd het
+losse script aan en zet het daarna in de JSON, nooit andersom.
 
 ## 5. Hoe het draait
 
@@ -60,10 +82,11 @@ Runtime-container draait `bash /home/container/start.sh`, dat:
 1. ontbrekende templates uit `/opt/smokeping-defaults` kopieert
 2. css/js downloadt van GitHub als `www/css` ontbreekt (zie §6.5)
 3. `cgiurl` herschrijft naar `IP:PORT` als `AUTO_CGIURL=1`
-4. `smokeping --check` draait; bij een fout stopt hij met de reden
-5. de daemon met `--nodaemon` en lighttpd met `-D` start, beide in de achtergrond
-6. `SmokePing is up` echoot — dit is de done-regex waar Wings op wacht
-7. via `wait -n` de boel afsluit zodra één van beide processen stopt
+4. een ICMP-zelftest draait en het resultaat naar `icmp-test.txt` schrijft (§6.9)
+5. `smokeping --check` draait; bij een fout stopt hij met de reden
+6. de daemon met `--nodaemon` en lighttpd met `-D` start, beide in de achtergrond
+7. `SmokePing is up` echoot — dit is de done-regex waar Wings op wacht
+8. via `wait -n` de boel afsluit zodra één van beide processen stopt
 
 Stopcommando is `^^C` (SIGINT), afgevangen door een trap in `start.sh`.
 
@@ -87,15 +110,49 @@ Die gebruiker mag het door Wings geschreven install-script niet lezen. Opgelost 
 Gevolg: het install-script kan niet meer bij `/opt/smokeping-defaults` uit de image.
 Het kopiëren van templates is daarom verplaatst naar `start.sh`.
 
-### 6.3 fping en CAP_NET_RAW
-Wings dropt `CAP_NET_RAW`. Een binary met file-capabilities die niet in de bounding
-set zitten kan daardoor niet meer exec'en. De Dockerfile doet daarom `setcap -r` en
-`chmod u-s` op fping, zodat fping 5.x terugvalt op unprivileged ICMP datagram
-sockets. Werkt zolang `net.ipv4.ping_group_range` in de container de GID omvat —
-Docker zet die standaard op `0 2147483647`.
+### 6.3 100% packet loss op alle targets — fping, niet het netwerk
 
-**Nog niet geverifieerd.** Test: `fping -c1 1.1.1.1` in de serverconsole. Faalt dat,
-dan is de uitwijk de Curl-probe, die al uitgecommentarieerd in `config` staat.
+Dit heeft de langste tijd op een verkeerd spoor gestaan. De oorspronkelijke
+aanname was dat `CAP_NET_RAW` het probleem was. Dat klopt niet.
+
+Wat er is gemeten in de draaiende container (uid 999, gid 987):
+
+| Test | Uitkomst |
+|---|---|
+| `SOCK_RAW` ICMP-socket | geweigerd — verwacht, Wings dropt `CAP_NET_RAW` |
+| `SOCK_DGRAM` ICMP-socket | **aangemaakt zonder fout** |
+| Handmatige echo naar 172.18.0.1, 1.1.1.1, 8.8.8.8 | **alle drie antwoord binnen 3s** |
+| `ping_group_range` | `0 2147483647` — dekt gid 987 |
+| `getcap /usr/bin/fping` | leeg — caps correct gestript |
+| `fping -c1 1.1.1.1` | 100% loss |
+| `fping -C3 -q -B1 -r1 -i10 1.1.1.1` (SmokePing's aanroep) | `- - -` |
+
+ICMP werkt dus gewoon. De capabilities-truc werkt ook gewoon. Alleen fping niet.
+
+De oorzaak zit in hoe unprivileged ICMP op Linux werkt. Bij een `SOCK_DGRAM`
+ICMP-socket vervangt de kernel het echo-**ID** in het pakket door het poortnummer
+van de socket — zo weet hij later naar welke socket een reply moet. Bewezen met
+een eigen echo:
+
+```
+verzonden ICMP echo id = 0xBEEF
+ontvangen  ICMP echo id = 0x004A
+```
+
+fping 5.1 filtert binnenkomende replies op het ID dat het zélf heeft geschreven,
+ziet nooit een match, en rapporteert alles als verloren. Upstream heeft dit
+opgelost in **fping 5.2** ("Fix running in unprivileged mode", issue #248,
+release 2024-04-21). Debian 13 (trixie) levert 5.1-1, van februari 2022.
+
+**Fix:** de Dockerfile bouwt fping uit source (`FPING_VERSION`, standaard 5.3) in
+een aparte builder-stage. De `COPY` staat bewust *na* `apt-get install`, want het
+`smokeping`-pakket trekt Debian's fping mee en zou de eigen build overschrijven.
+De build faalt hard als er alsnog een fping < 5.2 in de image belandt.
+
+De Curl-probe (uitgecommentarieerd aanwezig in `config`) blijft de uitwijk voor
+omgevingen waar ICMP écht geblokkeerd is. Let op: die meet HTTP-round-trip, geen
+ICMP, en je moet de bestaande RRD's van omgezette targets weggooien — anders meng
+je twee soorten metingen in één grafiek.
 
 ### 6.4 `Not enough arguments for Smokeping::cgi`
 In 2.8.x heeft `Smokeping::cgi` een `($$)`-prototype: configpad **en** een CGI-object.
@@ -117,13 +174,24 @@ cd /home/container/www && curl -sL \
 ```
 Zit nu in `start.sh` (bij ontbreken) én in de Dockerfile (bij build).
 
-### 6.6 `Fontconfig error: No writable cache directories`
+### 6.6 `Fontconfig error: No writable cache directories` — opgelost en bevestigd
 `mod_cgi` geeft het script een uitgeklede omgeving zonder `HOME`. RRDtool tekent zijn
 labels via fontconfig, dat een schrijfbare cachemap wil. Opgelost met een
 `setenv.add-environment`-blok in `lighttpd.conf` (`HOME`, `XDG_CACHE_HOME`, `TMPDIR`)
 plus de map `tmp/fontcache`.
 
-**Dit is de meest waarschijnlijke oorzaak van de "lege" grafieken.**
+Geverifieerd op de draaiende server met een request vanuit de container zelf:
+
+```
+HTTP/1.1 200 OK          Server: lighttpd/1.4.79
+fontconfig-fouten in de uitvoer: 0
+cache/Internet/Cloudflare_last_34560000.png   28228 bytes
+cache/Internet/Cloudflare_last_864000.png     26004 bytes
+```
+
+Grafieken van 25–28 KB zijn normaal gerenderde RRD-plots. Het renderen was dus
+nooit stuk. Dat de grafieken er leeg uitzagen kwam door §6.3: er ís geen meetdata.
+Twee losse problemen die op hetzelfde leken — dat heeft de diagnose vertraagd.
 
 ### 6.7 `Section 'X' does not exist`
 Geen bug. Oude links uit de browsergeschiedenis naar groepen die niet in de huidige
@@ -133,6 +201,16 @@ Geen bug. Oude links uit de browsergeschiedenis naar groepen die niet in de huid
 - `setlogsock(): type='unix': path not available` — geen syslog-socket in de
   container, met opzet; logging gaat naar de console omdat `syslogfacility` niet is gezet
 - `Use of uninitialized value ...` — upstream-warnings van SmokePing zelf
+
+### 6.9 De serverconsole accepteert geen commando's
+Het hoofdproces is `bash /home/container/start.sh`. Bash die een script uitvoert
+leest geen stdin, dus alles wat je in de console typt verdwijnt. Getest via de
+API: het commando wordt geaccepteerd (HTTP 204) en er gebeurt niets.
+
+Diagnostiek moet dus via `start.sh` of via de file-API. Daarom draait er nu een
+ICMP-zelftest bij elke boot, die naar `icmp-test.txt` schrijft én in de console
+waarschuwt. Zonder die test is stille 100% loss niet te onderscheiden van een
+werkende meting — precies de valkuil waar §6.3 in is gelopen.
 
 ---
 
@@ -144,30 +222,58 @@ aan het install-script; dat moet je expliciet bijwerken in Admin → Nests → e
 Installation, of door de egg te verwijderen en opnieuw te importeren (kan alleen
 zonder gekoppelde servers). Daarna Reinstall Server.
 
-Dit heeft meerdere rondes gekost — controleer bij twijfel of het scriptveld in het
-panel het woord `setenv` bevat.
+Dit is geen theorie: op 19 augustus stond in het panel nog steeds de versie
+zonder `setenv`, terwijl de fix al in de werkkopie zat. Controleer bij twijfel of
+het scriptveld in het panel het woord `setenv` bevat.
+
+De Application API kan eggs alleen *lezen*, niet schrijven. Bijwerken is dus altijd
+handwerk in de admin-interface. Een reinstall triggeren kan wél via de API.
 
 ## 8. Nog te doen
 
-1. Egg in het panel bijwerken naar de laatste versie, server reinstallen
-2. `fping -c1 1.1.1.1` draaien en het resultaat vaststellen
-3. Als ICMP niet mag: Curl-probe activeren en de bestaande RRD's van omgezette
-   targets weggooien (anders meng je ICMP- en HTTP-metingen)
+1. Image opnieuw bouwen en pushen zodat fping 5.3 erin zit — dit is wat de
+   100% loss oplost. De Dockerfile is er klaar voor
+2. Egg in het panel bijwerken naar `install-script.sh`, server reinstallen
+3. Na de reinstall `icmp-test.txt` lezen; daar hoort nu `1 alive` in te staan
 4. GitHub billing oplossen zodat Actions de image weer bouwt
-5. Optioneel: image opnieuw bouwen zodat de css/js erin zitten en de runtime-download
-   overbodig wordt
-6. Optioneel: label `SmokePing (Debian 12)` klopt niet meer, de yolks-basis is
-   inmiddels Debian 13 (trixie)
+5. Optioneel: `debian:bookworm-slim` als install-container bijtrekken naar trixie,
+   puur voor consistentie — bookworm werkt prima en is bewezen
 
 ## 9. Handige commando's
 
+De serverconsole neemt geen input aan (§6.9). Alles hieronder gaat via de
+file-API of via een tijdelijke regel in `start.sh`.
+
 ```bash
-# in de serverconsole
+# resultaat van de ICMP-zelftest ophalen (client API)
+curl -s -H "Authorization: Bearer $CLIENT_KEY" -H "Accept: application/json" \
+  "https://client.hostmybot.net/api/client/servers/7ca5beca/files/contents?file=%2Ficmp-test.txt"
+```
+
+```bash
+# een bestand terugschrijven
+curl -s -X POST -H "Authorization: Bearer $CLIENT_KEY" -H "Content-Type: text/plain" \
+  --data-binary @lighttpd.conf \
+  "https://client.hostmybot.net/api/client/servers/7ca5beca/files/write?file=%2Flighttpd.conf"
+```
+
+```bash
+# herstarten
+curl -s -X POST -H "Authorization: Bearer $CLIENT_KEY" -H "Content-Type: application/json" \
+  -d '{"signal":"restart"}' \
+  "https://client.hostmybot.net/api/client/servers/7ca5beca/power"
+```
+
+Regels om tijdelijk in `start.sh` te zetten als je iets wilt weten:
+
+```bash
 fping -c1 1.1.1.1
 ls -l /home/container/data/Internet/
 rrdtool lastupdate /home/container/data/Internet/Cloudflare.rrd
 smokeping --config=/home/container/config --check
-
-# originele template terugzetten
 cp /opt/smokeping-defaults/basepage.html /home/container/basepage.html
 ```
+
+Let op bij zulke regels: zet ze niet in de achtergrond. `start.sh` eindigt op
+`wait -n`, dus een subshell die klaar is telt als "een child is gestopt" en de
+server sluit zichzelf af.

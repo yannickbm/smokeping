@@ -150,6 +150,36 @@ if [ "${AUTO_CGIURL:-1}" = "1" ]; then
     sed -i -E "s|^([[:space:]]*cgiurl[[:space:]]*=).*|\1 http://${SERVER_IP}:${SERVER_PORT}/smokeping.cgi|" "$CONFIG"
 fi
 
+# --- ICMP self-test --------------------------------------------------------
+# Silent 100% loss is indistinguishable from a working probe, so say so loudly.
+# The console cannot be used for this: the main process is bash running this
+# script and it never reads stdin, so console input goes nowhere. The result is
+# written to icmp-test.txt as well as printed here.
+{
+    echo "== fping -c1 1.1.1.1 =="
+    fping -c1 -t2000 1.1.1.1 2>&1
+    echo "fping exit=$?"
+    echo
+    echo "== fping version =="
+    fping -v 2>&1 | head -1
+    echo "== id =="
+    id
+    echo "== /proc/sys/net/ipv4/ping_group_range =="
+    cat /proc/sys/net/ipv4/ping_group_range 2>&1
+    echo "== getcap /usr/bin/fping =="
+    getcap /usr/bin/fping 2>&1 || echo "(none)"
+} > /home/container/icmp-test.txt 2>&1
+
+if grep -q "1 alive" /home/container/icmp-test.txt 2>/dev/null; then
+    echo "[*] ICMP self-test passed."
+else
+    echo "[!] ICMP self-test FAILED - every target will report 100% loss."
+    echo "[!] Details in icmp-test.txt."
+    echo "[!] fping below 5.2 cannot do this: without CAP_NET_RAW it uses"
+    echo "[!] unprivileged ICMP sockets, whose echo id the kernel rewrites,"
+    echo "[!] and only 5.2+ matches replies correctly. Check the version above."
+fi
+
 echo "[*] Checking configuration"
 if ! "$SMOKEPING_BIN" --config="$CONFIG" --check; then
     echo "[!] Configuration error - fix /home/container/config and restart."
